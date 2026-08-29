@@ -1,0 +1,22 @@
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+
+# Environments
+.env
+.venv
+env/
+venv/
+
+# Large Binary Presentation / Archives (to keep repo lightweight)
+*.pptx
+*.zip
+*.tar.gz
+
+# System / IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
