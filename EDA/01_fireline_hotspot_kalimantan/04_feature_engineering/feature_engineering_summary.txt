@@ -1,0 +1,192 @@
+FEATURE ENGINEERING SUMMARY
+==================================================
+Total input columns  : 11 (after dropping 4 constant columns)
+Total output columns : 43
+New features added   : 32
+
+==================================================
+CATEGORY 1: TEMPORAL (13 features)
+==================================================
+
+year
+  Description : Calendar year extracted from acquisition date.
+  Formula     : year = acq_date.year
+
+month
+  Description : Calendar month (1-12) from acquisition date.
+  Formula     : month = acq_date.month
+
+month_name
+  Description : Abbreviated month label (e.g., Jan, Feb).
+  Formula     : month_name = acq_date.strftime('%b')
+
+day_of_month
+  Description : Day number within the month (1-31).
+  Formula     : day_of_month = acq_date.day
+
+day_name
+  Description : Name of the weekday (e.g., Monday, Tuesday).
+  Formula     : day_name = acq_date.strftime('%A')
+
+is_weekend
+  Description : Binary flag for weekend days.
+  Formula     : is_weekend = 1 if dayofweek in {5, 6} else 0
+                (5 = Saturday, 6 = Sunday)
+
+hour
+  Description : Hour of satellite overpass (0-23), parsed from acq_time HHMM integer.
+  Formula     : hour = int(str(acq_time).zfill(4)[:2])
+
+quarter
+  Description : Calendar quarter label (Q1-Q4).
+  Formula     : quarter = 'Q' + str(ceil(month / 3))
+
+year_month
+  Description : Year-month string for monthly time-series grouping.
+  Formula     : year_month = acq_date.strftime('%Y-%m')
+
+season
+  Description : Binary seasonal classification based on Kalimantan dry season cycle.
+  Formula     : season = 'Dry Season (Jun-Oct)'  if month in {6,7,8,9,10}
+                         'Wet Season (Nov-May)'   otherwise
+
+days_since_start
+  Description : Integer offset from the dataset start date (2024-08-01). Useful as a continuous temporal index for trend modeling.
+  Formula     : days_since_start = (acq_date - 2024-08-01).days
+
+is_kemarau
+  Description : Binary dry season flag.
+  Formula     : is_kemarau = 1 if month in {6,7,8,9,10} else 0
+
+time_period
+  Description : Time-of-day classification based on hour of satellite overpass.
+  Formula     : time_period = 'Morning (05-11)'    if  5 <= hour < 11
+                              'Midday (11-15)'      if 11 <= hour < 15
+                              'Afternoon (15-19)'   if 15 <= hour < 19
+                              'Night (19-05)'       otherwise
+
+==================================================
+CATEGORY 2: HAZARD -- Fire Physical Characteristics (8 features)
+==================================================
+
+temp_delta_K
+  Description : Temperature contrast between the fire surface and the background land surface. Higher delta = more active/intense fire independent of ambient ground heat.
+  Formula     : temp_delta_K = brightness - bright_t31   [Kelvin]
+                  brightness  = VIIRS Channel 4 (~4 um) fire surface brightness temp
+                  bright_t31  = VIIRS Channel I-5 (~11 um) background land temp
+
+brightness_celsius
+  Description : Fire surface brightness temperature converted to Celsius for human readability.
+  Formula     : brightness_celsius = brightness - 273.15   [degrees Celsius]
+
+bright_t31_celsius
+  Description : Background land surface temperature converted to Celsius.
+  Formula     : bright_t31_celsius = bright_t31 - 273.15   [degrees Celsius]
+
+pixel_area_km2
+  Description : Estimated ground area (km2) covered by a single VIIRS fire detection pixel. Used to weight fire radiative power by spatial footprint.
+  Formula     : pixel_area_km2 = scan * track * 0.140625
+                  (0.140625 km2 = area of 375m x 375m nominal VIIRS pixel)
+
+fire_intensity_class
+  Description : Ordinal 4-class label for fire intensity, aligned with operational response tiers in the FIRELINE PRD.
+  Formula     : 'Low (<5 MW)'       if frp < 5
+                'Medium (5-20 MW)'  if  5 <= frp < 20
+                'High (20-50 MW)'   if 20 <= frp < 50
+                'Extreme (>50 MW)'  if frp >= 50
+
+is_extreme_fire
+  Description : Binary flag for fires exceeding the extreme threshold. Maps directly to Tier-1 emergency response in FIRELINE.
+  Formula     : is_extreme_fire = 1 if frp > 100 else 0
+
+is_mega_fire
+  Description : Binary flag for mega-fire events. Only 6 occurrences in the full dataset (Aug 2024 - May 2026).
+  Formula     : is_mega_fire = 1 if frp > 500 else 0
+
+frp_log
+  Description : Log-transformed Fire Radiative Power. Compresses the extreme right-skewed distribution (max 954 MW vs median 6.1 MW) into a near-normal shape suitable for linear modeling.
+  Formula     : frp_log = log(1 + frp) = log1p(frp)
+
+==================================================
+CATEGORY 3: CONFIDENCE & RELIABILITY (3 features)
+==================================================
+
+confidence_num
+  Description : Ordinal encoding of sensor confidence level.
+  Formula     : confidence_num = 0 if confidence='l'
+                                 1 if confidence='n'
+                                 2 if confidence='h'
+
+confidence_weight
+  Description : Continuous reliability weight for sensor detection. Used as a correction factor to prevent over-trusting nominal detections and under-trusting high-confidence ones.
+  Formula     : confidence_weight = 0.30 if confidence='l' (low)
+                                    0.70 if confidence='n' (nominal)
+                                    1.00 if confidence='h' (high)
+
+weighted_frp
+  Description : Fire Radiative Power adjusted by sensor reliability. Provides a detection-corrected measure of fire energy for risk scoring.
+  Formula     : weighted_frp = frp * confidence_weight
+
+==================================================
+CATEGORY 4: SPATIAL / REGIONAL (4 features)
+==================================================
+
+kalimantan_region
+  Description : Province-level label assigned via rule-based bounding box. Enables province-level aggregation and spatial stratification.
+  Formula     : Rule-based assignment using latitude/longitude bounding boxes:
+                  Kalimantan Utara  : lat in [1.0, 4.5],  lon in [114.5, 119.5]
+                  Kalimantan Timur  : lat in [-2.5, 2.8], lon in [114.5, 119.0]
+                  Kalimantan Selatan: lat in [-4.2,-1.3], lon in [114.5, 117.5]
+                  Kalimantan Tengah : lat in [-4.0, 0.0], lon in [111.0, 116.5]
+                  Kalimantan Barat  : lat in [-4.2, 2.1], lon in [108.0, 115.0]
+                  Other             : outside above bounds
+
+lat_zone
+  Description : Hemispheric classification based on latitude sign.
+  Formula     : lat_zone = 'Utara (North)' if latitude >= 0 else 'Selatan (South)'
+
+coord_grid_1deg
+  Description : Coarse 1-degree grid cell identifier (~111 km x 111 km). Used for broad regional aggregation.
+  Formula     : coord_grid_1deg = str(round(latitude)) + '_' + str(round(longitude))
+
+coord_grid_05deg
+  Description : Fine 0.5-degree grid cell identifier (~55 km x 55 km). Primary resolution for fire recurrence analysis and chronic zone identification.
+  Formula     : coord_grid_05deg = str(round(latitude*2)/2) + '_' + str(round(longitude*2)/2)
+
+==================================================
+CATEGORY 5: VULNERABILITY -- Fire Recurrence (3 features)
+==================================================
+
+fire_recurrence_count
+  Description : Total number of hotspot detections recorded within the same 0.5-degree grid cell across the entire 22-month observation period. High recurrence = chronic fire zone = high structural vulnerability.
+  Formula     : fire_recurrence_count = COUNT(hotspots) GROUP BY coord_grid_05deg
+
+cumulative_frp_at_grid
+  Description : Cumulative sum of all FRP values (MW) ever detected within the same 0.5-degree grid cell. Captures total fire energy burden of a location over the full observation period.
+  Formula     : cumulative_frp_at_grid = SUM(frp) GROUP BY coord_grid_05deg
+
+is_high_recurrence
+  Description : Binary flag for grid cells with 5 or more fire detections over 22 months. Identifies persistent fire-prone zones that warrant preventive resource pre-positioning.
+  Formula     : is_high_recurrence = 1 if fire_recurrence_count >= 5 else 0
+
+==================================================
+CATEGORY 6: COMPOSITE -- HAZARD INDEX (1 feature)
+==================================================
+
+hazard_score
+  Description : Composite HAZARD dimension score (0-100 scale). Represents the fire physical danger level independently of spatial exposure or land vulnerability. This is Component 1 of 3 in the full FIRELINE Contextual Risk Index (H + E + V).
+  Formula     : frp_norm   = clip(frp / max_frp * 100, 0, 100)
+                delta_norm  = clip(temp_delta_K / max_delta * 100, 0, 100)
+                conf_norm   = confidence_weight * 100
+                hazard_score = 0.40 * frp_norm + 0.35 * delta_norm + 0.25 * conf_norm
+
+  Weight rationale:
+    40% FRP        -- Primary indicator of fire destructive energy (validated by NASA FIRMS methodology)
+    35% temp_delta -- Independent fire intensity signal relative to background temperature
+    25% confidence -- Sensor reliability correction to avoid over-trusting nominal detections
+
+  Score interpretation:
+    0  - 25   : Low     -- Routine satellite monitoring
+    25 - 50   : Medium  -- Active patrol recommended
+    50 - 75   : High    -- Rapid ground response priority
+    Above 75  : Critical-- Requires full H + E + V integration (not achievable from fire data alone)
