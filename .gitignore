@@ -1,0 +1,5 @@
+#raw local data
+data/
+
+# macOS
+.DS_Store
