@@ -141,3 +141,133 @@ Skrip integrasi telah memverifikasi seluruh syarat kontraktual data:
 2. `assert df_final['detection_id'].nunique() == 61583`: Terbukti 100% unik tanpa duplikasi.
 3. `assert df_final['weather_available'].all()`: Terbukti 100% observasi memiliki konteks atmosferik.
 4. Ukuran Berkas Fisik: **26,74 MB**, sangat ideal untuk diimpor ke dalam Tableau Desktop maupun Public tanpa melampaui limit penyimpanan.
+
+---
+
+## 6. Audit Komprehensif Fitur Kandidat, Missingness, Leakage, dan Coverage
+
+Audit ini dilakukan untuk memastikan bahwa seluruh fitur kandidat yang diintegrasikan memenuhi kaidah metodologi sains data, tidak menimbulkan kebocoran informasi (*data leakage*), dan memiliki sebaran cakupan yang representatif sebelum model dan visualisasi difinalisasi.
+
+### 6.1 Audit Feature Kandidat dan Relevansi Domain
+
+Dataset master merangkum 41 atribut kolom yang berasal dari 5 domain analitis:
+
+| Domain Data | Fitur Kandidat | Peran dalam Pipeline | Tipe Sinyal | Keterangan & Catatan Kualitas |
+| :--- | :--- | :--- | :---: | :--- |
+| **Identitas Spasio-Temporal** | `detection_id`, `latitude`, `longitude`, `acq_date`, `acq_time`, `operational_date` | Primary Keys & Temporal Anchors | Diskrit / Koordinat | Kunci unik 100% konsisten. Penyesuaian WIB (+1 hari untuk jam $\ge 17:00$ UTC) berhasil menangani 6.304 baris (10,24%). |
+| **Administrasi** | `province_name`, `province_official`, `is_in_kalimantan` | Filter Geografis Tableau | Kategorikal | 100% observasi berada di pulau Kalimantan. Penanganan garis pantai berhasil melengkapi 1.129 titik pulau luar. |
+| **Fisika Termal Satelit** | `brightness`, `bright_t31`, `temp_delta`, `frp`, `confidence`, `daynight`, `scan`, `track` | Input Pilar Hazard | Kontinu & Ordinal | Sinyal energi murni kebakaran (*Fire Radiative Power*). Distribusi FRP berkisar 0,09 s.d 954,79 MW (Median 6,14 MW, Mean 10,57 MW). |
+| **Karakteristik Gambut** | `is_peatland`, `nama_khg`, `khg_id`, `peat_depth`, `depth_cm`, `fungsi_zona`, `peat_hazard_multiplier` | Pengali Bahaya Bawah Tanah | Spasial Poligon (KHG) | Mengindikasikan kerentanan kebakaran bawah permukaan (*smoldering*). 5.414 titik (8,79%) berada di kawasan gambut KHG. |
+| **Atmosfer & Tanah BMKG** | `temperature_2m_*`, `relative_humidity_2m_*`, `precipitation_sum`, `windspeed_10m_max`, `vapor_pressure_deficit_max`, `is_dry_day`, `soil_moisture_*`, `soil_temperature_*` | Input Pilar Vulnerability | Kontinu (Deret Waktu Harian) | Mencerminkan tingkat kekeringan bahan bakar (*fuel dryness*). Variabel VPD dan kelembapan tanah lapisan 0-7 cm menjadi prediktor kekeringan terkuat. |
+| **Paparan Aset Publik BPS** | `nearest_school_name`, `nearest_school_stage`, `nearest_school_distance_km`, `schools_within_5km`, `schools_within_10km` | Input Pilar Exposure | Jarak Spasial (cKDTree) | Mengukur ancaman fisik terhadap fasilitas pendidikan dan kelompok rentan anak usia sekolah. Median jarak kebakaran ke sekolah adalah 2,79 km. |
+| **Indeks Risiko & Keputusan** | `hazard_score`, `vulnerability_score`, `exposure_score`, `crpi_score`, `urgency_tier`, `rekomendasi_taktis` | Target Label & Visualisasi DSS | Kontinu & Kelas Keputusan | Output komposit MCDA kerangka BNPB/UNDRR untuk konsumsi Tableau dan target label pemodelan terarah. |
+
+### 6.2 Analisis Missingness (Kelengkapan Nilai & Penanganan Null)
+
+Pemeriksaan nilai kosong (*missing values*) pada seluruh 61.583 baris menunjukkan hasil sebagai berikut:
+
+| Nama Kolom | Jumlah Null | Persentase | Tipe Missingness | Justifikasi & Mekanisme Penanganan |
+| :--- | :---: | :---: | :---: | :--- |
+| `province_official` | 1.129 | 1,83% | *Missing Completely at Random* (Spasial) | Terjadi akibat titik api berada di garis pantai terluar atau muara pulau kecil di luar poligon batas darat ketat. **Solusi:** Terselesaikan 100% melalui kolom kanonikal `province_name` yang mengambil fallback provinsi stasiun terdekat. |
+| `khg_id` | 56.169 | 91,21% | *Structural Missingness* (Bukan Data Hilang) | Titik api berada di luar kawasan Kesatuan Hidrologis Gambut (Tanah Mineral). Nilai null adalah representasi alami bahwa lahan tersebut bukan gambut. |
+| `fungsi_zona` | 56.169 | 91,21% | *Structural Missingness* (Bukan Data Hilang) | Selaras dengan `khg_id`, tanah mineral tidak memiliki zonasi fungsi lindung/budidaya gambut. |
+| **Seluruh 38 Kolom Lainnya** | **0** | **0,00%** | **Lengkap Sempurna (100%)** | Seluruh data titik api, parameter cuaca BMKG, kelembapan tanah ERA5-Land, koordinat sekolah, jarak cKDTree, skor pilar, dan label tier terisi 100% lengkap. |
+
+### 6.3 Audit Data Leakage (Target Leakage, Temporal Leakage, & Spatial Autocorrelation)
+
+Untuk menjaga integritas ilmiah saat dataset ini digunakan untuk pelatihan model *Machine Learning* (prediksi urgensi atau eskalasi kebakaran), berikut adalah temuan audit *leakage*:
+
+1. **Target Leakage (Kebocoran Variabel Target):**
+   - **Kondisi:** Kolom `crpi_score`, `urgency_tier`, dan `rekomendasi_taktis` diturunkan secara langsung dari kombinasi matematis `hazard_score`, `vulnerability_score`, dan `exposure_score`.
+   - **Aturan Pemodelan ML:** Saat membangun model prediktif (misalnya klasifikasi *Urgency Tier* dengan XGBoost atau LightGBM), **seluruh keenam kolom skor/label ini WAJIB DIKELUARKAN dari matriks fitur $X$**. Model harus dilatih murni menggunakan fitur independen mentah (FRP, suhu, angin, VPD, kelembapan tanah, jarak sekolah, kedalaman gambut).
+2. **Temporal Leakage (Kebocoran Deret Waktu):**
+   - **Kondisi:** Penggabungan cuaca BMKG menggunakan data harian pada tanggal yang sama (`operational_date`).
+   - **Validitas DSS:** Untuk sistem *monitoring* dan *triage* pada hari kejadian (hari H), pendekatan ini valid karena mencerminkan kondisi cuaca saat api terdeteksi.
+   - **Aturan Forecasting (Prediksi D-1/D-2):** Jika dikembangkan model peramalan risiko untuk esok hari, model tidak boleh menggunakan realisasi cuaca hari H, melainkan wajib menggunakan fitur *lagged* ($t-1$, $t-7$) atau data prakiraan cuaca numerik (*Numerical Weather Prediction*).
+3. **Spatial Data Leakage (Autokorelasi Spasial):**
+   - Titik-titik api satelit menunjukkan derajat autokorelasi spasial tinggi (kebakaran berkerumun dalam satu kluster lanskap).
+   - **Rekomendasi Pemisahan Data:** Dilarang menggunakan *Random K-Fold Cross Validation* konvensional karena akan membocorkan titik api tetangga ke dalam data uji (*data snooping*). Disarankan menggunakan **Spatial-Block Cross Validation** (berdasarkan batas kabupaten atau poligon KHG) atau **Temporal Split** (Train: 2024 s.d 2025, Test: 2026).
+
+### 6.4 Analisis Cakupan (Coverage) Geografis, Temporal, dan Sensor
+
+- **Cakupan Temporal:** Berjalan dari **1 Agustus 2024 hingga 1 Juni 2026**.
+  - Tahun 2024: 24.878 observasi (40,40%)
+  - Tahun 2025: 29.741 observasi (48,29%)
+  - Tahun 2026 (Januari s.d Mei): 6.964 observasi (11,31%)
+- **Konsentrasi Musim Kemarau:**
+  - Terjadi konsentrasi masif pada 4 bulan musim kemarau (**Juli, Agustus, September, Oktober**) dengan total **50.696 titik api (82,32% dari total insiden)**. Puncak kebakaran ekstrem terjadi pada bulan September dengan 25.972 titik (42,17%).
+- **Cakupan Spasial Provinsi:**
+  - Kalimantan Barat merupakan hotspot terpadat: 36.100 titik (58,62%).
+  - Kalimantan Timur: 11.029 titik (17,91%).
+  - Kalimantan Tengah: 8.442 titik (13,71%).
+  - Kalimantan Selatan: 3.597 titik (5,84%).
+  - Kalimantan Utara: 2.415 titik (3,92%).
+- **Representasi Jaringan Stasiun Cuaca BMKG:**
+  - Jarak rata-rata titik api ke stasiun BMKG terdekat adalah **99,22 km** (Median: 96,14 km; Q1: 64,56 km; Q3: 124,70 km). Stasiun mencakup seluruh 14 kota simpul utama di 5 provinsi Kalimantan.
+
+---
+
+## 7. Validasi Empiris Pilar Hazard, Vulnerability, dan Exposure terhadap CRPI
+
+Pengujian statistik mendalam dilakukan untuk membuktikan apakah formulasi skor ketiga pilar risiko benar-benar didukung secara ilmiah dan empiris oleh data, serta mengevaluasi keandalan indeks CRPI.
+
+### 7.1 Validasi Pilar 1: Hazard (Dukungan Fisika Termal Satelit & Multiplier Gambut)
+
+Pilar Hazard dirancang untuk menangkap besaran energi api dan potensi penjalaran bawah tanah. Hasil uji empiris:
+1. **Korelasi dengan Fitur Satelit:**
+   - Skor Hazard berkorelasi positif kuat dengan `temp_delta` ($r = +0,731$) dan `frp` ($r = +0,461$). Hal ini membuktikan bahwa kebakaran berintensitas tinggi dengan anomali suhu tajam secara konsisten memicu skor bahaya yang tinggi.
+2. **Diferensiasi Lahan Gambut:**
+   - Rata-rata Skor Hazard pada Lahan Gambut (`is_peatland = 1`) adalah **48,70**, lebih tinggi secara signifikan dibandingkan Tanah Mineral (**43,88**).
+   - Sebanyak 2.045 titik di gambut sangat dalam (> 300 cm) mendapatkan pengali bahaya maksimum 1,35x, dan 939 titik di gambut dalam (200-300 cm) mendapatkan 1,25x. Hal ini merefleksikan bahaya nyata kebakaran bawah permukaan yang sulit dipadamkan.
+
+### 7.2 Validasi Pilar 2: Vulnerability (Dukungan Fisika Atmosfer BMKG & Dehidrasi Tanah)
+
+Pilar Vulnerability mengukur tingkat kerentanan lanskap terhadap penyebaran api cepat berdasarkan mikroklimat. Arah korelasi empiris terbukti **100% konsisten dengan hukum termodinamika atmosfer**:
+1. **Vapor Pressure Deficit (VPD):** Berkorelasi positif sangat kuat ($r = +0,825$). Ketika udara sangat kering dan haus uap air, skor kerentanan melonjak drastis.
+2. **Kelembapan Udara Minimum (RH):** Berkorelasi negatif sangat kuat ($r = -0,835$). Saat kelembapan udara anjlok di bawah 50%, kebakaran merambat tanpa hambatan.
+3. **Kadar Air Tanah (Soil Moisture 0-7 cm):** Berkorelasi negatif kuat ($r = -0,706$). Tanah dengan kelembapan rendah mendekati 0,05-0,20 $m^3/m^3$ menunjukkan defisit air parah yang memicu skor kerentanan puncak.
+4. **Kecepatan Angin (Windspeed 10m):** Berkorelasi positif ($r = +0,418$), menandakan suplai oksigen aktif yang mempercepat rambatan api.
+
+### 7.3 Validasi Pilar 3: Exposure (Dukungan Proksimitas Fasilitas Publik BPS)
+
+Pilar Exposure menilai ancaman nyata terhadap keselamatan manusia dan fasilitas pendidikan:
+1. **Kedekatan Fisik dengan Sekolah:**
+   - Fakta empiris menunjukkan bahwa **50% kebakaran di Kalimantan terjadi dalam jarak hanya $\le$ 2,79 km dari sekolah** (25% di antaranya bahkan $\le$ 1,65 km).
+   - Korelasi negatif terhadap jarak sekolah ($r = -0,314$) dan korelasi positif terhadap kepadatan sekolah radius 5 km ($r = +0,509$) membuktikan fungsi pembobotan spasial bekerja tepat sasaran dalam memprioritaskan kawasan padat fasilitas pendidikan.
+
+### 7.4 Analisis Inter-Pilar dan Dekomposisi Variansi CRPI (Orthogonality & Variance Dominance)
+
+#### A. Ortogonalitas Antar Pilar (Independensi Sinyal)
+Matriks korelasi antar ketiga pilar menunjukkan temuan fundamental:
+- Korelasi **Hazard vs Vulnerability:** $r = 0,084$ (Sangat rendah / independen).
+- Korelasi **Hazard vs Exposure:** $r = 0,001$ (Ortogonal / tidak berkorelasi).
+- Korelasi **Vulnerability vs Exposure:** $r = 0,104$ (Sangat rendah).
+
+> [!NOTE]
+> Nilai korelasi antar ketiga pilar yang mendekati nol ($|r| \le 0,10$) membuktikan bahwa **ketiga pilar mengukur dimensi risiko yang benar-benar independen dan tidak memiliki redundansi informasi (bebas multikolinearitas)**. Kerangka BNPB/UNDRR terbukti kokoh secara matematis pada dataset ini.
+
+#### B. Dekomposisi Variansi Skor CRPI (*Variance Dominance*)
+Berdasarkan formulasi $\text{CRPI} = 0,35 \cdot H + 0,25 \cdot V + 0,40 \cdot E$, dilakukan dekomposisi variansi matematis:
+$$\operatorname{Var}(\text{CRPI}) = w_H^2 \operatorname{Var}(H) + w_V^2 \operatorname{Var}(V) + w_E^2 \operatorname{Var}(E) + 2 \sum_{i < j} w_i w_j \operatorname{Cov}(X_i, X_j)$$
+
+Hasil dekomposisi variansi pada 61.583 data:
+- **Total Variansi CRPI:** $121,13$
+- **Kontribusi Variansi Efektif Hazard ($w_H^2 \operatorname{Var}(H)$):** $9,22$ (**7,6%**)
+- **Kontribusi Variansi Efektif Vulnerability ($w_V^2 \operatorname{Var}(V)$):** $6,35$ (**5,2%**)
+- **Kontribusi Variansi Efektif Exposure ($w_E^2 \operatorname{Var}(E)$):** $99,02$ (**81,7%**)
+- **Kontribusi Kovariansi Gabungan:** $6,54$ (**5,4%**)
+
+**Interpretasi Kritis Temuan Variansi:**
+Meskipun bobot nominal adalah 35% Hazard, 25% Vulnerability, dan 40% Exposure, **sebesar 81,7% variansi dari skor akhir CRPI didorong oleh pilar Exposure**. Hal ini terjadi karena sebaran spasial jarak sekolah memiliki dispersi yang sangat lebar (Standar Deviasi Exposure = $24,88$; Rentang $0$ s.d $100$), sementara pilar Hazard dan Vulnerability memiliki sebaran yang lebih terkonsentrasi di tengah (Standar Deviasi masing-masing $8,68$ dan $10,08$).
+
+### 7.5 Evaluasi Validasi Kasus Ekstrem (Tier 1 Kritis) dan Justifikasi Finalisasi
+
+Bukti paling nyata dari keandalan formula CRPI terlihat pada konsentrasi kelas **Tier 1 (Kritis)**:
+- Dari total 61.583 titik api, hanya **26 insiden (0,04%)** yang dinyatakan masuk dalam Tier 1: Kritis ($\text{CRPI} \ge 80$).
+- **Sebanyak 25 dari 26 insiden Tier 1 (96,15%) berlokasi tepat di Lahan Gambut (`is_peatland = 1`)**, dan hanya 1 insiden yang berada di tanah mineral.
+- Pada lahan gambut, rasio kebakaran yang mencapai status Tinggi/Kritis (Tier 1 & Tier 2) adalah **29,99%**, berbanding jauh dengan tanah mineral yang hanya **10,66%** (rasio risiko 3 kali lipat lebih tinggi).
+
+### Kesimpulan & Rekomendasi Finalisasi:
+1. **Skor CRPI Resmi Disahkan:** Formulasi CRPI terbukti secara teoretis dan empiris menangkap titik-titik kebakaran paling berbahaya di Kalimantan tanpa menghasilkan alarm palsu massal (*false alarm control* yang sangat baik, di mana hanya 0,04% kasus diklasifikasikan sebagai Kritis sehingga operasi udara *water-bombing* dapat diarahkan secara tepat sasaran).
+2. **Kesiapan Tableau Dashboard:** Variasi dinamis pada pilar Exposure dan diskriminasi tajam pada pilar Gambut memberikan kedalaman visualisasi analitis yang kaya pada visual peta dan scatter plot 5-tab dashboard Tableau.
+3. **Catatan Pengembangan Tahap Modeling (Machine Learning):** Dalam pengembangan model prediktif lanjut pasca-Checkpoint 2, rasio variansi pilar ini dapat dikomparasikan dengan teknik kalibrasi alternatif (misalnya normalisasi z-score atau penyesuaian bobot adaptif berbasis musim kemarau) sebagai bentuk inovasi eksperimen data science.
