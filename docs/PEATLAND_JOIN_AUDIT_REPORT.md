@@ -4,8 +4,8 @@
 **Author:** Tim Data Science Alpha  
 **Tanggal:** 5 September 2026  
 **Status:** Approved & Verified (Deduplikasi Selesai)  
-**File Target Audit:** [fireline_hotspot_peat_featured_2024_2026.csv](file:///d:/Draft%20Perlombaan%20UNESA/COMPFEST%20-%20CASE%20STUDY/fireline-main/datasets/fireline_hotspot_peat_featured_2024_2026.csv)  
-**Skrip Audit:** [audit_peatland_join.py](file:///d:/Draft%20Perlombaan%20UNESA/COMPFEST%20-%20CASE%20STUDY/fireline-main/scripts/audit_peatland_join.py)  
+**File Target Audit:** [`datasets/fireline_hotspot_peat_featured_2024_2026.csv`](../datasets/fireline_hotspot_peat_featured_2024_2026.csv)  
+**Skrip Audit:** [`scripts/audit_peatland_join.py`](../scripts/audit_peatland_join.py)  
 
 ---
 
@@ -26,29 +26,29 @@ Audit ini dilakukan untuk menyelesaikan isu ketidaksesuaian jumlah baris (*row c
 
 Kedua dataset telah diperiksa strukturnya melalui *spatial metadata inspection* menggunakan pustaka GeoPandas dan Shapely:
 
-| Komponen Data | Nama Berkas | Tipe Geometri | CRS Terdaftar | Format Koordinat | Status Validasi |
+| Komponen Data | Nama Berkas (Root Repo) | Tipe Geometri | CRS Terdaftar | Format Koordinat | Status Validasi |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Hotspot Base Data** | [fireline_hotspot_kalimantan_viirs_noaa20_2024_2026.csv](file:///d:/Draft%20Perlombaan%20UNESA/COMPFEST%20-%20CASE%20STUDY/fireline-main/datasets/fireline_hotspot_kalimantan_viirs_noaa20_2024_2026.csv) | Point (lat, lon) | EPSG:4326 | Derajat Desimal (WGS 84) | Valid (Lat: -4.3 s.d 4.3, Lon: 108.6 s.d 119.0) |
-| **Peatland Layer 1 (KHG)** | [kalimantan_peatland_spatial.geojson](file:///d:/Draft%20Perlombaan%20UNESA/COMPFEST%20-%20CASE%20STUDY/fireline-main/datasets/kalimantan_peatland_spatial.geojson) | Polygon (25 fitur) | EPSG:4326 | Derajat Desimal (WGS 84) | Valid (BBSDLP / SK.129 KLHK) |
-| **Peatland Layer 2 (BIG)** | [peta_lahan_gambut_kalimantan.geojson](file:///d:/Draft%20Perlombaan%20UNESA/COMPFEST%20-%20CASE%20STUDY/fireline-main/datasets/gambut/peta_lahan_gambut_kalimantan.geojson) | MultiPolygon (146 fitur) | EPSG:4326 | Derajat Desimal (WGS 84) | Valid (Badan Informasi Geospasial) |
+| **Hotspot Base Data** | [`datasets/fireline_hotspot_kalimantan_viirs_noaa20_2024_2026.csv`](../datasets/fireline_hotspot_kalimantan_viirs_noaa20_2024_2026.csv) | Point (lat, lon) | EPSG:4326 | Derajat Desimal (WGS 84) | Valid (Lat: -4.3 s.d 4.3, Lon: 108.6 s.d 119.0) |
+| **Peatland Layer 1 (KHG)** | [`datasets/kalimantan_peatland_spatial.geojson`](../datasets/kalimantan_peatland_spatial.geojson) | Polygon (25 fitur) | EPSG:4326 | Derajat Desimal (WGS 84) | Valid (BBSDLP / SK.129 KLHK) |
+| **Peatland Layer 2 (BIG)** | [`datasets/gambut/peta_lahan_gambut_kalimantan.geojson`](../datasets/gambut/peta_lahan_gambut_kalimantan.geojson) | MultiPolygon (146 fitur) | EPSG:4326 | Derajat Desimal (WGS 84) | Valid (Badan Informasi Geospasial) |
 
 ### Bukti Eksekusi Proyeksi:
-- Pada saat dilakukan pemuatan GeoDataFrame:
-  ```python
-  import geopandas as gpd
-  gdf_khg = gpd.read_file("datasets/kalimantan_peatland_spatial.geojson")
-  print(gdf_khg.crs)
-  # Output: EPSG:4326
-  ```
-- Tidak ditemukan perbedaan proyeksi (*zero CRS mismatch*), sehingga relasi spasial (*point-in-polygon predicate*) berjalan presisi tanpa kebutuhan transformasi koordinat (*re-projection*) tambahan.
+Pada saat dilakukan pemuatan GeoDataFrame:
+```python
+import geopandas as gpd
+gdf_khg = gpd.read_file("datasets/kalimantan_peatland_spatial.geojson")
+print(gdf_khg.crs)
+# Output: EPSG:4326
+```
+Tidak ditemukan perbedaan proyeksi (*zero CRS mismatch*), sehingga relasi spasial (*point-in-polygon predicate*) berjalan presisi tanpa kebutuhan transformasi koordinat (*re-projection*) tambahan.
 
 ---
 
 ## 3. Investigasi dan Penyelesaian Duplikasi 149 Baris
 
 ### A. Akar Penyebab (Root Cause Analysis)
-Pada pipeline awal penggabungan spasial (`05_integrate_hotspot_peatland.py`), dilakukan operasi `gpd.sjoin(gdf_hotspots, gdf_peatland, how='left', predicate='within')`.
-- Poligon batas Kesatuan Hidrologis Gambut (KHG) pada berkas `kalimantan_peatland_spatial.geojson` memiliki garis batas bersama (*shared boundary*) yang bersinggungan langsung antar zona kelas kedalaman.
+Pada pipeline awal penggabungan spasial (`scripts/05_integrate_hotspot_peatland.py`), dilakukan operasi `gpd.sjoin(gdf_hotspots, gdf_peatland, how='left', predicate='within')`.
+- Poligon batas Kesatuan Hidrologis Gambut (KHG) pada berkas `datasets/kalimantan_peatland_spatial.geojson` memiliki garis batas bersama (*shared boundary*) yang bersinggungan langsung antar zona kelas kedalaman.
 - Sebanyak 149 titik deteksi satelit VIIRS jatuh persis pada garis perpotongan batas dua poligon adjacent (misalnya batas antara zona kedalaman *Sedang 100-200 cm* dan *Dangkal 50-100 cm*).
 - Akibat kondisi topologi tersebut, fungsi *spatial join* mengaitkan 1 titik api ke dalam 2 baris poligon sekaligus, menghasilkan 298 baris untuk 149 titik unik ($298 - 149 = 149$ baris ekses).
 - Hal ini menyebabkan jumlah baris membengkak dari 61.583 menjadi 61.732 baris.
@@ -62,7 +62,7 @@ Pada pipeline awal penggabungan spasial (`05_integrate_hotspot_peatland.py`), di
 | -3.35436 | 114.79527 | 2024-09-02 | 0530 | KHG_05 | KHG Kahayan - Sebangau | Dangkal (50-100 cm) | 90 |
 
 ### C. Prosedur Eliminasi dan Resolusi Teknis
-Untuk menjamin integritas kontraktual dataset sesuai [DATA_INTEGRATION_CONTRACT.md](file:///d:/Draft%20Perlombaan%20UNESA/COMPFEST%20-%20CASE%20STUDY/fireline-main/docs/DATA_INTEGRATION_CONTRACT.md):
+Untuk menjamin integritas kontraktual dataset sesuai [`docs/DATA_INTEGRATION_CONTRACT.md`](./DATA_INTEGRATION_CONTRACT.md):
 1. Ditetapkan *composite unique key*: `['latitude', 'longitude', 'acq_date', 'acq_time']`.
 2. Diterapkan aturan konservatif berbasis risiko (*worst-case hazard principle*): Jika suatu titik api menyentuh dua zona gambut, sistem mempertahankan poligon dengan kedalaman gambut tertinggi (`depth_cm` maksimal).
 3. Pengurutan dilakukan secara deterministik:
@@ -76,7 +76,7 @@ Untuk menjamin integritas kontraktual dataset sesuai [DATA_INTEGRATION_CONTRACT.
    ).reset_index(drop=True)
    ```
 4. **Hasil Eliminasi:** Tepat 149 baris duplikat terhapus. Jumlah baris dataset kembali persis **61.583 baris**, identik secara granular dengan *NASA Raw Hotspot Source of Truth*.
-5. Berkas [fireline_hotspot_peat_featured_2024_2026.csv](file:///d:/Draft%20Perlombaan%20UNESA/COMPFEST%20-%20CASE%20STUDY/fireline-main/datasets/fireline_hotspot_peat_featured_2024_2026.csv) telah diperbarui dan ditimpa dengan data hasil deduplikasi bersih.
+5. Berkas [`datasets/fireline_hotspot_peat_featured_2024_2026.csv`](../datasets/fireline_hotspot_peat_featured_2024_2026.csv) telah diperbarui dan ditimpa dengan data hasil deduplikasi bersih.
 
 ---
 
@@ -116,7 +116,7 @@ Dari 5.414 titik api yang berada di atas formasi lahan gambut, sebaran menurut k
 
 ## 6. Validasi Silang dengan Layer BIG (Badan Informasi Geospasial)
 
-Sebagai bentuk pengujian independen (*cross-validation*), dilakukan pengujian *point-in-polygon* kedua terhadap dataset resmi BIG ([peta_lahan_gambut_kalimantan.geojson](file:///d:/Draft%20Perlombaan%20UNESA/COMPFEST%20-%20CASE%20STUDY/fireline-main/datasets/gambut/peta_lahan_gambut_kalimantan.geojson), 146 poligon multi-fitur):
+Sebagai bentuk pengujian independen (*cross-validation*), dilakukan pengujian *point-in-polygon* kedua terhadap dataset resmi BIG ([`datasets/gambut/peta_lahan_gambut_kalimantan.geojson`](../datasets/gambut/peta_lahan_gambut_kalimantan.geojson), 146 poligon multi-fitur):
 
 - **Matched Titik Api (BIG):** 5.600 titik (9,09%)
 - **Unmatched Titik Api (BIG):** 55.983 titik (90,91%)
@@ -161,5 +161,5 @@ Berdasarkan perbandingan teknis, performa arsitektur dashboard, dan relevansi pe
 ## 8. Status Akhir Berkas Data
 
 Dengan disahkannya audit ini:
-- Dataset terintegrasi [fireline_hotspot_peat_featured_2024_2026.csv](file:///d:/Draft%20Perlombaan%20UNESA/COMPFEST%20-%20CASE%20STUDY/fireline-main/datasets/fireline_hotspot_peat_featured_2024_2026.csv) dinyatakan **bersih, tervalidasi, dan tepat berjumlah 61.583 baris**.
-- Kontrak data pada [DATA_INTEGRATION_CONTRACT.md](file:///d:/Draft%20Perlombaan%20UNESA/COMPFEST%20-%20CASE%20STUDY/fireline-main/docs/DATA_INTEGRATION_CONTRACT.md) kini terpenuhi secara penuh (1:1 relation dengan NASA VIIRS source).
+- Dataset terintegrasi [`datasets/fireline_hotspot_peat_featured_2024_2026.csv`](../datasets/fireline_hotspot_peat_featured_2024_2026.csv) dinyatakan **bersih, tervalidasi, dan tepat berjumlah 61.583 baris**.
+- Kontrak data pada [`docs/DATA_INTEGRATION_CONTRACT.md`](./DATA_INTEGRATION_CONTRACT.md) kini terpenuhi secara penuh (1:1 relation dengan NASA VIIRS source).
