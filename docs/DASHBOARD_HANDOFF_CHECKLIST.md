@@ -1,7 +1,7 @@
 # FIRELINE Dashboard Handoff Checklist
 
 **Tanggal:** 2026-09-06  
-**Current status:** `NOT READY` — checklist ini adalah gate sebelum build Tableau production.
+**Current status:** `NOT READY` untuk production/live; `READY WITH CONDITIONS` untuk prototype/demo.
 
 ## A. Data Alignment
 
@@ -31,7 +31,9 @@
 
 ## D. DS×SEA and Tab 5
 
-- [ ] Physical citizen-report dataset/schema exists.
+- [ ] Dummy citizen-report source exists for demo, with the same schema planned for live input.
+- [ ] Dummy records carry `is_simulated=true` / `source_type='dummy'` and a visible `SIMULATION — NOT LIVE DATA` label.
+- [ ] Physical live citizen-report dataset/API and schema exists before public release.
 - [ ] `report_id` and `detection_id`/`event_id` linkage rule is approved.
 - [ ] `incident_id`/`event_id` definition and clustering window are approved, or the dashboard is explicitly observation-only.
 - [ ] Verification status, verifier, verification timestamp, and evidence fields exist.
@@ -45,7 +47,8 @@
 - [ ] Tab 2 chronic-fire grid definition and source are certified.
 - [ ] Tab 3 weather distance coverage, drought feature, and baseline comparability are documented.
 - [ ] Tab 4 school/facility population metrics have a validated grain and no row multiplication.
-- [ ] Tab 5 has real report/verification data and can show before/after re-scoring.
+- [ ] Demo Tab 5 uses dummy report/verification data and can show before/after re-scoring without implying real performance.
+- [ ] Live Tab 5 is tested with real report/verification data after publication.
 - [ ] Every KPI, mark, tooltip, and filter is backed by a validated field.
 
 ## F. Tableau release gate
@@ -59,9 +62,8 @@
 
 ## Current blockers to close
 
-1. Missing citizen-report and SEA contract for Tab 5.
+1. Missing live citizen-report source and SEA contract for Tab 5; dummy data is acceptable only for the explicitly labelled demo phase.
 2. Weather >200 km threshold violation affecting 2.249 observations.
 3. Soil/peat fields inherited from a derived file instead of independently rebuilt/audited in the master builder.
 4. Province fallback and hardcoded `is_in_kalimantan` differ from the integration contract.
 5. Dashboard specification and master schema/CRPI formula are not reconciled.
-

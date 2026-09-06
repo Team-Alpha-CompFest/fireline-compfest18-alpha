@@ -2,11 +2,13 @@
 
 **Tanggal audit:** 2026-09-06  
 **Scope:** repository `main`, source datasets, integration scripts, DS×SEA contract, dan dashboard specification  
-**Verdict:** `NOT READY`
+**Production verdict:** `NOT READY`
+
+**Prototype/demo verdict:** `READY WITH CONDITIONS` setelah source dummy Tab 5 dibuat dan diberi label simulasi
 
 ## 1. Executive verdict
 
-FIRELINE belum siap masuk ke tahap build Tableau production. Tab 1–4 memiliki sebagian besar bahan analitik pada tingkat observasi hotspot, tetapi belum semuanya memenuhi kontrak integrasi atau spesifikasi field dashboard. Tab 5 tidak dapat dibangun secara valid karena dataset citizen report/verification dan kontrak SEA belum ada secara fisik.
+FIRELINE belum siap masuk ke tahap build Tableau production. Tab 1–4 memiliki sebagian besar bahan analitik pada tingkat observasi hotspot, tetapi belum semuanya memenuhi kontrak integrasi atau spesifikasi field dashboard. Tab 5 boleh dibangun untuk demo menggunakan data dummy, dengan syarat dummy dipisahkan dari data live, diberi label jelas, dan memakai schema yang sama dengan rencana input citizen report setelah dashboard dipublikasikan. Integrasi live Tab 5 tetap belum siap karena source/API dan kontrak SEA belum ada secara fisik.
 
 Dataset master saat ini berisi 61.583 baris dan 50 kolom, dengan periode NASA `2024-08-01` sampai `2026-05-31`. Master ini berguna sebagai kandidat sumber observasi, tetapi statusnya belum boleh diperlakukan sebagai signed-off source of truth.
 
@@ -22,7 +24,7 @@ Dataset master saat ini berisi 61.583 baris dan 50 kolom, dengan periode NASA `2
 | Schools | `datasets/processed/data4_schools_cleaned_kalimantan.csv` | 17.548 rows; 17.363 valid coordinates | Available as separate facility source |
 | Historical climate | cleaned EDA file, 87.238 rows, 24 stations, 2010–2020 | Station-day baseline | Available for comparison only |
 | Pontianak local | `data/pontianak_weather_daily_2021_2024.csv` | 1.734 source rows; 1.460 unique dates | Local validation only |
-| Citizen reports/SEA | Expected `fireline_citizen_reports_simulation.csv` is absent | No report grain/schema/link | Blocking |
+| Citizen reports/SEA | Source live belum ada; source dummy dapat dibuat untuk demo | Schema/link live belum disepakati | Demo conditional; live blocked |
 
 ## 3. Data Alignment audit
 
@@ -89,7 +91,7 @@ The table below uses the requested format. “Match rate” is defined against t
 | 2. Hazard & Fire Severity | NASA thermal fields and peat attributes exist | No certified chronic-fire grid table matching the stated 224 zones / 0.05° spec; peat canonical still provisional | **Conditional prototype only** |
 | 3. Meteorology & Climate Vulnerability | Operational weather/soil, historical cleaned climate, and Pontianak source exist | Weather threshold issue; no `Drought14d_Norm` in master; sources have different coverage/grain; sunshine/wind gusts are not in master | **Conditional after contract reconciliation** |
 | 4. Human Exposure & Vital Facility Vulnerability | Nearest school and 5/10 km counts exist; separate school facility source exists | No 25 km count; no validated hotspot→school bridge; district/status/population KPI can cause many-to-many duplication | **Conditional aggregate-only prototype** |
-| 5. Dynamic Re-Scoring & Ground-Truth Verification | Only conceptual `rescoring.py` logic exists | No citizen report file, report key, verification fields, timestamps, before/after CRPI, dispatch/resolution status | **Blocked** |
+| 5. Dynamic Re-Scoring & Ground-Truth Verification | Belum ada source fisik; dapat memakai dummy terlabel untuk demo | Source live, report key, verification fields, timestamps, before/after CRPI, dispatch/resolution status belum tersedia | **Demo conditional; live blocked** |
 
 ## 8. Recommended Tableau calculations
 
@@ -131,6 +133,5 @@ Do not expose district, population, verification status, dispatch status, resolu
 3. Rebuild soil and peat joins from their declared source files in an auditable pipeline; rerun duplicate, match-rate, and CRS/geometry checks.
 4. Decide whether the dashboard uses a certified aggregate exposure view or a separate facility source; add/approve 25 km counts if required by the spec.
 5. Reconcile the dashboard specification with actual schema: `Drought14d_Norm`, district/population fields, field names, chronic grid definition, and weather variables.
-6. Produce the citizen-report/SEA schema and sample data, including report-to-detection/event linkage, verification lifecycle, and before/after CRPI.
+6. Produce a schema-compatible dummy citizen-report source for demo, clearly labelled as simulation; separately approve the live citizen-report/SEA schema, report-to-detection/event linkage, verification lifecycle, and before/after CRPI.
 7. Only after steps 1–6 pass, create Tableau extracts and validate KPI totals against the certified source.
-
